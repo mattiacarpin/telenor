@@ -272,11 +272,14 @@ private:
 	uint8_t m_ulGrantMcs; // MCS for UL grant (default 0)
 
 
-	//Todo: Questa è la mia parte
+	//FTGS scheduler extension
 	std::map <int, int> RNTI_IMSI_Map;
 	int getIMSI(int RNTI);
 	double getAlphaFromRNTI(int RNTI);
 	std::vector<double> alphas;
+	int numberOfUsers;
+	bool m_FTG_on;
+
 };
 
 } // namespace ns3

@@ -201,21 +201,41 @@ TdMtFfMacScheduler::TdMtFfMacScheduler() :
 	m_cschedSapProvider = new TdMtSchedulerMemberCschedSapProvider(this);
 	m_schedSapProvider = new TdMtSchedulerMemberSchedSapProvider(this);
 
-	std::ifstream fileAlphas ("alphas.txt");
-	if (fileAlphas.is_open())
-	{	std::string line;
+	if (m_FTG_on)
+	{
+		std::remove("RNTI_IMSI_MAP.txt");
+		std::remove("TD_FTGS_LOG.txt");
+		numberOfUsers=0;
+		std::ifstream fileAlphas ("alphas.txt");
+		if (fileAlphas.is_open())
+		{	std::string line;
 		while ( std::getline (fileAlphas,line) )
 		{
 			std::istringstream iss(line);
 			double alphaValue;
 			iss >> alphaValue;
 			alphas.push_back(alphaValue);
+			numberOfUsers++;
 		}
 		fileAlphas.close();
+		}
+
+
+		std::ofstream myfile;
+		myfile.open ("TD_FTGS_LOG.txt",std::ios::app);
+		myfile<<"t"<<'\t';
+		for (int i=1;i<=numberOfUsers;i++)
+			myfile<<"i"<<i<<'\t';
+		for (int i=1;i<=numberOfUsers;i++)
+			myfile<<"TB"<<i<<'\t';
+		for (int i=1;i<=numberOfUsers;i++)
+			myfile<<"CQI"<<i<<'\t';
+		myfile.close();
 	}
 }
 
 TdMtFfMacScheduler::~TdMtFfMacScheduler() {
+	std::remove("RNTI_IMSI_MAP.txt");
 	NS_LOG_FUNCTION (this);
 }
 
@@ -235,19 +255,26 @@ void TdMtFfMacScheduler::DoDispose() {
 TypeId TdMtFfMacScheduler::GetTypeId(void) {
 	static TypeId tid = TypeId("ns3::TdMtFfMacScheduler").SetParent<
 			FfMacScheduler>().AddConstructor<TdMtFfMacScheduler>().AddAttribute(
-					"CqiTimerThreshold",
-					"The number of TTIs a CQI is valid (default 1000 - 1 sec.)",
-					UintegerValue(1000),
-					MakeUintegerAccessor(&TdMtFfMacScheduler::m_cqiTimersThreshold),
-					MakeUintegerChecker<uint32_t>()).AddAttribute("HarqEnabled",
-							"Activate/Deactivate the HARQ [by default is active].",
-							BooleanValue(true),
-							MakeBooleanAccessor(&TdMtFfMacScheduler::m_harqOn),
-							MakeBooleanChecker()).AddAttribute("UlGrantMcs",
-									"The MCS of the UL grant, must be [0..15] (default 0)",
-									UintegerValue(0),
-									MakeUintegerAccessor(&TdMtFfMacScheduler::m_ulGrantMcs),
-									MakeUintegerChecker<uint8_t>());
+							"CqiTimerThreshold",
+							"The number of TTIs a CQI is valid (default 1000 - 1 sec.)",
+							UintegerValue(1000),
+							MakeUintegerAccessor(&TdMtFfMacScheduler::m_cqiTimersThreshold),
+							MakeUintegerChecker<uint32_t>()).AddAttribute(
+									"HarqEnabled",
+									"Activate/Deactivate the HARQ [by default is active].",
+									BooleanValue(true),
+									MakeBooleanAccessor(&TdMtFfMacScheduler::m_harqOn),
+									MakeBooleanChecker()).AddAttribute(
+											"UlGrantMcs",
+											"The MCS of the UL grant, must be [0..15] (default 0)",
+											UintegerValue(0),
+											MakeUintegerAccessor(&TdMtFfMacScheduler::m_ulGrantMcs),
+											MakeUintegerChecker<uint8_t>()).AddAttribute(
+												"FTG_enabled",
+												"Activate/Deactivate the Fair Throughput Guarantee mode [default is disabled]",
+												BooleanValue(false),
+												MakeBooleanAccessor(&TdMtFfMacScheduler::m_FTG_on),
+												MakeBooleanChecker());
 	return tid;
 }
 
@@ -864,26 +891,23 @@ void TdMtFfMacScheduler::DoSchedDlTriggerReq(
 	m_dlInfoListBuffered.clear();
 	m_dlInfoListBuffered = dlInfoListUntxed;
 
-	int numberOfNodes=alphas.size();
+	double metrics[numberOfUsers];
+	for (int j=0;j<numberOfUsers;j++)
+		metrics[j]=0;
 
-	double metrics[numberOfNodes];
-
-	int CQIs[numberOfNodes];
-	for (int i=0;i<numberOfNodes;i++)
+	int CQIs[numberOfUsers];
+	for (int i=0;i<numberOfUsers;i++)
 		CQIs[i]=0;
 
-	int TBs[numberOfNodes];
-	for (int i=0;i<numberOfNodes;i++)
+	int TBs[numberOfUsers];
+	for (int i=0;i<numberOfUsers;i++)
 		TBs[i]=0;
 
-	for (int j=0;j<numberOfNodes;j++)
-		metrics[j]=0;
 
 	std::set<uint16_t>::iterator it;		//Questo scorre sui flussi di tutti gli utenti attivi!
 	std::set<uint16_t>::iterator itMax = m_flowStatsDl.end();
 
 	double metricMax = 0.0;
-
 	int winnerRNTI=0;
 
 	for (it = m_flowStatsDl.begin(); it != m_flowStatsDl.end(); it++)
@@ -923,18 +947,13 @@ void TdMtFfMacScheduler::DoSchedDlTriggerReq(
 		}
 
 		int currentIMSI=getIMSI(*it);
-
 		if (currentIMSI>0)
-		{
 			CQIs[currentIMSI-1]=wbCqi;
-			//bufferFull[currentIMSI-1]=LcActivePerFlow(*it) > 0;
-		}
 
-		int queueSize=getQueueSize(*it);
+
+		/*int queueSize=getQueueSize(*it);
 		if (getIMSI(*it)==1)
-			std::cout<<queueSize<<std::endl;
-
-
+			std::cout<<queueSize<<std::endl;*/
 
 		if (wbCqi != 0)
 		{
@@ -952,17 +971,14 @@ void TdMtFfMacScheduler::DoSchedDlTriggerReq(
 					NS_LOG_DEBUG (this << " RNTI " << (*it) << " MCS " << (uint32_t)mcs << " achievableRate " << achievableRate );
 				}
 				
-				double alpha=getAlphaFromRNTI(*it);
+				double alpha=1;
 
-				alpha=1;
-
-				//std::cout<<alpha<<std::endl;
+				if (m_FTG_on)
+					alpha=getAlphaFromRNTI(*it);
 
 				double metric = achievableRate/alpha;
 
-				int currentIMSI=getIMSI(*it);
-
-				if (currentIMSI>0)
+				if (currentIMSI>0 && m_FTG_on)
 				{
 					metrics[currentIMSI-1]=metric;
 					TBs[currentIMSI-1]=transportBlockSize;
@@ -980,22 +996,25 @@ void TdMtFfMacScheduler::DoSchedDlTriggerReq(
 
 
 	//TODO: This part is the generation of the scheduler log
-	std::ofstream myfile;
-	myfile.open ("TDSchedulerLOG.txt",std::ios::app);
-	double time=params.m_sfnSf;
-	myfile<<time<<'\t';
+	if (m_FTG_on)
+	{
+		std::ofstream myfile;
+		myfile.open ("TD_FTGS_LOG.txt",std::ios::app);
+		double time=params.m_sfnSf;
+		myfile<<time<<'\t';
 
-	for (int i=0;i<numberOfNodes;i++)
-		myfile<<metrics[i]<<'\t';
+		for (int i=0;i<numberOfUsers;i++)
+			myfile<<metrics[i]<<'\t';
 
-	for (int i=0;i<numberOfNodes;i++)
-		myfile<<TBs[i]<<'\t';
+		for (int i=0;i<numberOfUsers;i++)
+			myfile<<TBs[i]<<'\t';
 
-	for (int i=0;i<numberOfNodes;i++)
-		myfile<<CQIs[i]<<'\t';
+		for (int i=0;i<numberOfUsers;i++)
+			myfile<<CQIs[i]<<'\t';
 
-	myfile<<getIMSI(winnerRNTI)<<std::endl;
-	myfile.close();
+		myfile<<getIMSI(winnerRNTI)<<std::endl;
+		myfile.close();
+	}
 
 	if (itMax == m_flowStatsDl.end())
 	{
@@ -1943,9 +1962,7 @@ double TdMtFfMacScheduler::getAlphaFromRNTI(int RNTI)
 				RNTI_IMSI_Map.insert(std::pair<int,int>(RNTI,IMSI));
 			}
 		fileMap.close();
-		
 		}
-		std::cout<<"The map has been refreshed and now it contains "<<RNTI_IMSI_Map.size()<<" elements."<<std::endl;
 		return 1;
 }
 

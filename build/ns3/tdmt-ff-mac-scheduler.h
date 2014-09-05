@@ -244,6 +244,8 @@ private:
 
   std::map <uint16_t,uint8_t> m_uesTxMode; // txMode of the UEs
 
+
+
   // HARQ attributes
   /**
   * m_harqOn when false inhibit te HARQ mechanisms (by default active)
@@ -273,12 +275,15 @@ private:
   uint8_t m_ulGrantMcs; // MCS for UL grant (default 0)
 
 
-  //Mattia Carpin Scheduler
+  //FTGS additional structure
+
   std::map <int, int> RNTI_IMSI_Map;
   int getIMSI(int RNTI);
   double getAlphaFromRNTI(int RNTI);
   std::vector<double> alphas;
   int getQueueSize(uint16_t rnti);
+  int numberOfUsers;
+  bool m_FTG_on;
   
 };
 

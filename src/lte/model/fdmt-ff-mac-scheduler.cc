@@ -224,18 +224,32 @@ FdMtFfMacScheduler::FdMtFfMacScheduler ()
 	m_cschedSapProvider = new FdMtSchedulerMemberCschedSapProvider (this);
 	m_schedSapProvider = new FdMtSchedulerMemberSchedSapProvider (this);
 
-	std::cout<<"Sono passato dal costruttore dello scheduler FD"<<std::endl;
-	std::ifstream fileAlphas ("alphas.txt");
-	if (fileAlphas.is_open())
-	{	std::string line;
-	while ( std::getline (fileAlphas,line) )
+	if (m_FTG_on)
 	{
-		std::istringstream iss(line);
-		double alphaValue;
-		iss >> alphaValue;
-		alphas.push_back(alphaValue);
-	}
-	fileAlphas.close();
+		std::remove("RNTI_IMSI_MAP.txt");
+		std::remove("FD_FTGS_LOG.txt");
+		numberOfUsers=0;
+		std::ifstream fileAlphas ("alphas.txt");
+		if (fileAlphas.is_open())
+		{	std::string line;
+		while ( std::getline (fileAlphas,line) )
+		{
+			std::istringstream iss(line);
+			double alphaValue;
+			iss >> alphaValue;
+			alphas.push_back(alphaValue);
+			numberOfUsers++;
+		}
+		fileAlphas.close();
+		}
+
+		std::ofstream myfile;
+		myfile.open ("FD_FTGS_LOG.txt",std::ios::app);
+		myfile<<"t"<<'\t'<<"RBG"<<'\t';
+		for (int i=1;i<=numberOfUsers;i++)
+			myfile<<"i"<<i<<'\t';
+		myfile<<"i*"<<'\t'<<"TB"<<std::endl;
+		myfile.close();
 	}
 
 
@@ -244,6 +258,7 @@ FdMtFfMacScheduler::FdMtFfMacScheduler ()
 FdMtFfMacScheduler::~FdMtFfMacScheduler ()
 {
 	NS_LOG_FUNCTION (this);
+	std::remove("RNTI_IMSI_MAP.txt");
 }
 
 void
@@ -281,7 +296,12 @@ FdMtFfMacScheduler::GetTypeId (void)
     														"The MCS of the UL grant, must be [0..15] (default 0)",
     														UintegerValue (0),
     														MakeUintegerAccessor (&FdMtFfMacScheduler::m_ulGrantMcs),
-    														MakeUintegerChecker<uint8_t> ())
+    														MakeUintegerChecker<uint8_t> ()).AddAttribute(
+    																"FTG_enabled",
+    																"Activate/Deactivate the Fair Throughput Guarantee mode [default is disabled]",
+    																BooleanValue(false),
+    																MakeBooleanAccessor(&FdMtFfMacScheduler::m_FTG_on),
+    																MakeBooleanChecker())
     														;
 	return tid;
 }
@@ -1022,8 +1042,8 @@ FdMtFfMacScheduler::DoSchedDlTriggerReq (const struct FfMacSchedSapProvider::Sch
 	for (int j=0;j<numberOfNodes;j++)
 		metrics[j]=0;
 	std::ofstream myfile;
-	myfile.open ("FDSchedulerLOG.txt",std::ios::app);
-	uint8_t wbCqi = 0;
+	myfile.open ("FD_FTGS_LOG.txt",std::ios::app);
+	//uint8_t wbCqi = 0;
 	for (int i = 0; i < rbgNum; i++)
 	{
 		NS_LOG_INFO (this << " ALLOCATION for RBG " << i+1 << " of " << rbgNum);
@@ -1061,14 +1081,14 @@ FdMtFfMacScheduler::DoSchedDlTriggerReq (const struct FfMacSchedSapProvider::Sch
 				}
 				int nLayer = TransmissionModesLayers::TxMode2LayerNum ((*itTxMode).second);
 
-				std::map<uint16_t, uint8_t>::iterator itCqiWB = m_p10CqiRxed.find((*it));
+				/*std::map<uint16_t, uint8_t>::iterator itCqiWB = m_p10CqiRxed.find((*it));
 				if (userNumber==1)
 				{
 					if (itCqiWB != m_p10CqiRxed.end())
 						wbCqi = (*itCqiWB).second;
 					else
 						wbCqi = 1;
-				}
+				}*/
 
 
 				std::vector <uint8_t> sbCqi;
@@ -1102,8 +1122,8 @@ FdMtFfMacScheduler::DoSchedDlTriggerReq (const struct FfMacSchedSapProvider::Sch
 							if (sbCqi.size () > k)
 							{
 								mcs = m_amc->GetMcsFromCqi (sbCqi.at (k));
-								if (userNumber==1)
-									std::cout<<(int)(sbCqi.at (k))<<"\t";
+								/*if (userNumber==1)
+									std::cout<<(int)(sbCqi.at (k))<<"\t";*/
 							}
 							else
 							{
@@ -1116,13 +1136,14 @@ FdMtFfMacScheduler::DoSchedDlTriggerReq (const struct FfMacSchedSapProvider::Sch
 
 						//TODO: Here we should change the metric!!
 						int currentRNTI=*it;
-						double alpha=getAlphaFromRNTI(currentRNTI);
+						double alpha=1;
 
-						//alpha=1;
+						if (m_FTG_on)
+							alpha=getAlphaFromRNTI(currentRNTI);
 
-						//std::cout<<"RNTI ["<<*it<<"], IMSI ["<<getIMSI(*it)<<"], a="<<alpha<<std::endl;
-						int currentIMSI=getIMSI(*it);
 						double rcqi = achievableRate/alpha;
+
+						int currentIMSI=getIMSI(*it);
 						if (currentIMSI>0)
 						{
 							metrics[currentIMSI-1]=rcqi;
@@ -1142,20 +1163,14 @@ FdMtFfMacScheduler::DoSchedDlTriggerReq (const struct FfMacSchedSapProvider::Sch
 
 			} // end for m_rlcBufferReq
 
-
-
 			//TODO: This part is the generation of the scheduler log
 
 			double time=params.m_sfnSf;
 			myfile<<time<<'\t'<<i+1<<'\t';
-			/*for (int j=0;j<numberOfNodes;j++)
-				myfile<<metrics[j]<<'\t';*/
-			if (metrics[0]<0)
-			{std::cout<<"Cavolo"<<std::endl;}
+			for (int j=0;j<numberOfNodes;j++)
+				myfile<<metrics[j]<<'\t';
 
-			myfile<<getIMSI(winnerRNTI)<<'\t'<<winnerTBSize<<std::endl;
-
-
+			myfile<<getIMSI(getIMSI(winnerRNTI))<<'\t'<<winnerTBSize<<std::endl;
 
 			if (itMax == m_flowStatsDl.end ())
 			{
@@ -1183,7 +1198,6 @@ FdMtFfMacScheduler::DoSchedDlTriggerReq (const struct FfMacSchedSapProvider::Sch
 		} // end for RBG free
 	} // end for RBGs
 	myfile.close();
-	std::cout<<(int)(wbCqi)<<std::endl;
 
 	// generate the transmission opportunities by grouping the RBGs of the same RNTI and
 	// creating the correspondent DCIs
@@ -2226,7 +2240,6 @@ double FdMtFfMacScheduler::getAlphaFromRNTI(int RNTI)
 	fileMap.close();
 
 	}
-	std::cout<<"The map has been refreshed and now it contains "<<RNTI_IMSI_Map.size()<<" elements."<<std::endl;
 	return 1;
 }
 

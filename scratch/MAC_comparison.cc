@@ -18,13 +18,6 @@ using namespace ns3;
 
 int main (int argc, char *argv[])
 {
-	srand(1);
-	std::remove("RNTI_IMSI_MAP.txt");
-	std::remove("TDSchedulerLOG.txt");
-	std::remove("FDSchedulerLOG.txt");
-	std::remove("BETSchedulerLOG.txt");
-	std::remove("PFSchedulerLOG.txt");
-
 
 	//LogComponentEnable ("FdMtFfMacScheduler", LOG_LEVEL_ALL);
 	//LogComponentEnable ("LteEnbMac", LOG_LEVEL_ALL);
@@ -41,11 +34,13 @@ int main (int argc, char *argv[])
 
 	bool makeAvgdB=false;
 
-	double simTime = 60;
+	double simTime = 1;
 
 	Ptr<LteHelper> lteHelper = CreateObject<LteHelper> ();
 
-	lteHelper->SetSchedulerType ("ns3::PfFfMacScheduler");
+	lteHelper->SetSchedulerType ("ns3::FdMtFfMacScheduler");
+	lteHelper->SetSchedulerAttribute("FTG_enabled",BooleanValue(true));
+
 
 	Config::SetDefault("ns3::LteAmc::AmcModel",EnumValue(LteAmc::PiroEW2010));			//Modello per il calcolo del CQI che valuta ciascun RB
 	Config::SetDefault("ns3::LteEnbRrc::SrsPeriodicity",UintegerValue(160));			//Supporto per numerosi UEs
